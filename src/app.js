@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const db = require('./config/db');
 
 // Import routes
@@ -11,7 +12,7 @@ const app = express();
 
 // Middlewares
 app.use(cors({
-  origin: '*', // Allows requests from local frontend (Live Server / file)
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -19,8 +20,11 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Health Check Endpoint
-app.get('/api/health', async (req, res) => {
+// Serve uploads
+app.use(['/api/uploads', '/uploads'], express.static(path.join(__dirname, 'uploads')));
+
+// Root & Health Check Endpoints (handles both / and /api due to cPanel Passenger path rewriting)
+const healthHandler = async (req, res) => {
   let dbStatus = 'disconnected';
   try {
     await db.query('SELECT 1');
@@ -31,16 +35,26 @@ app.get('/api/health', async (req, res) => {
 
   res.json({
     success: true,
-    message: 'Naki Group Careers API is running smoothly',
+    message: 'Naki Group API is running smoothly',
     timestamp: new Date().toISOString(),
     database: dbStatus,
   });
-});
+};
 
-// API Routes
+app.get('/', healthHandler);
+app.get('/api', healthHandler);
+app.get('/health', healthHandler);
+app.get('/api/health', healthHandler);
+
+// API Routes (supports both /api/* and /* paths)
 app.use('/api/auth', authRoutes);
+app.use('/auth', authRoutes);
+
 app.use('/api/jobs', jobRoutes);
+app.use('/jobs', jobRoutes);
+
 app.use('/api/applications', applicationRoutes);
+app.use('/applications', applicationRoutes);
 
 // 404 Handler
 app.use((req, res) => {
@@ -72,4 +86,3 @@ app.use((err, req, res, next) => {
 });
 
 module.exports = app;
-

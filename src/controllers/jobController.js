@@ -13,12 +13,12 @@ exports.getPublicJobs = async (req, res) => {
 
     if (department && department !== 'all') {
       params.push(department);
-      query += ` AND department = $${params.length}`;
+      query += ` AND department = ?`;
     }
 
     if (type && type !== 'all') {
       params.push(type);
-      query += ` AND job_type = $${params.length}`;
+      query += ` AND job_type = ?`;
     }
 
     query += ' ORDER BY created_at DESC';
@@ -39,7 +39,7 @@ exports.getPublicJobs = async (req, res) => {
 exports.getJobById = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await db.query('SELECT * FROM jobs WHERE id = $1', [id]);
+    const result = await db.query('SELECT * FROM jobs WHERE id = ?', [id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Job not found' });
@@ -59,7 +59,7 @@ exports.getJobById = async (req, res) => {
 exports.getAllJobsAdmin = async (req, res) => {
   try {
     const query = `
-      SELECT j.*, COUNT(a.id)::int AS applicant_count
+      SELECT j.*, CAST(COUNT(a.id) AS UNSIGNED) AS applicant_count
       FROM jobs j
       LEFT JOIN applications a ON j.id = a.job_id
       GROUP BY j.id
@@ -104,8 +104,7 @@ exports.createJob = async (req, res) => {
     const query = `
       INSERT INTO jobs 
       (title, department, job_type, location, experience_level, salary_range, description, requirements, responsibilities, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING *
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -122,10 +121,14 @@ exports.createJob = async (req, res) => {
     ];
 
     const result = await db.query(query, values);
+
+    // Fetch the newly created job
+    const newJob = await db.query('SELECT * FROM jobs WHERE id = ?', [result.rows.insertId]);
+
     res.status(201).json({
       success: true,
       message: 'Job created successfully',
-      data: result.rows[0],
+      data: newJob.rows[0],
     });
   } catch (err) {
     console.error('Error in createJob:', err);
@@ -152,19 +155,18 @@ exports.updateJob = async (req, res) => {
 
     const query = `
       UPDATE jobs
-      SET title = COALESCE($1, title),
-          department = COALESCE($2, department),
-          job_type = COALESCE($3, job_type),
-          location = COALESCE($4, location),
-          experience_level = COALESCE($5, experience_level),
-          salary_range = COALESCE($6, salary_range),
-          description = COALESCE($7, description),
-          requirements = COALESCE($8, requirements),
-          responsibilities = COALESCE($9, responsibilities),
-          status = COALESCE($10, status),
+      SET title = COALESCE(?, title),
+          department = COALESCE(?, department),
+          job_type = COALESCE(?, job_type),
+          location = COALESCE(?, location),
+          experience_level = COALESCE(?, experience_level),
+          salary_range = COALESCE(?, salary_range),
+          description = COALESCE(?, description),
+          requirements = COALESCE(?, requirements),
+          responsibilities = COALESCE(?, responsibilities),
+          status = COALESCE(?, status),
           updated_at = CURRENT_TIMESTAMP
-      WHERE id = $11
-      RETURNING *
+      WHERE id = ?
     `;
 
     const values = [
@@ -183,14 +185,17 @@ exports.updateJob = async (req, res) => {
 
     const result = await db.query(query, values);
 
-    if (result.rows.length === 0) {
+    if (result.rows.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
+
+    // Fetch the updated job
+    const updatedJob = await db.query('SELECT * FROM jobs WHERE id = ?', [id]);
 
     res.json({
       success: true,
       message: 'Job updated successfully',
-      data: result.rows[0],
+      data: updatedJob.rows[0],
     });
   } catch (err) {
     console.error('Error in updateJob:', err);
@@ -202,9 +207,9 @@ exports.updateJob = async (req, res) => {
 exports.deleteJob = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await db.query('DELETE FROM jobs WHERE id = $1 RETURNING id', [id]);
+    const result = await db.query('DELETE FROM jobs WHERE id = ?', [id]);
 
-    if (result.rows.length === 0) {
+    if (result.rows.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
 
@@ -217,4 +222,3 @@ exports.deleteJob = async (req, res) => {
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
-

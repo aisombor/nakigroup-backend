@@ -28,7 +28,7 @@ exports.submitApplication = async (req, res) => {
     // Verify job exists if job_id provided
     let validJobId = null;
     if (job_id) {
-      const jobCheck = await db.query('SELECT id FROM jobs WHERE id = $1', [job_id]);
+      const jobCheck = await db.query('SELECT id FROM jobs WHERE id = ?', [job_id]);
       if (jobCheck.rows.length > 0) {
         validJobId = jobCheck.rows[0].id;
       }
@@ -37,8 +37,7 @@ exports.submitApplication = async (req, res) => {
     const query = `
       INSERT INTO applications 
       (job_id, full_name, email, phone, cv_file_path, original_file_name, cover_letter, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
-      RETURNING id, full_name, email, phone, original_file_name, status, applied_at
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
     `;
 
     const values = [
@@ -53,10 +52,16 @@ exports.submitApplication = async (req, res) => {
 
     const result = await db.query(query, values);
 
+    // Fetch the newly created application
+    const newApp = await db.query(
+      'SELECT id, full_name, email, phone, original_file_name, status, applied_at FROM applications WHERE id = ?',
+      [result.rows.insertId]
+    );
+
     res.status(201).json({
       success: true,
       message: 'Application submitted successfully! Our HR team will review your profile.',
-      data: result.rows[0],
+      data: newApp.rows[0],
     });
   } catch (err) {
     console.error('Error in submitApplication:', err);
@@ -84,12 +89,12 @@ exports.getAllApplications = async (req, res) => {
 
     if (status && status !== 'all') {
       params.push(status);
-      query += ` AND a.status = $${params.length}`;
+      query += ` AND a.status = ?`;
     }
 
     if (job_id && job_id !== 'all') {
       params.push(job_id);
-      query += ` AND a.job_id = $${params.length}`;
+      query += ` AND a.job_id = ?`;
     }
 
     query += ' ORDER BY a.applied_at DESC';
@@ -116,7 +121,7 @@ exports.getApplicationById = async (req, res) => {
         j.title AS job_title, j.department AS job_department, j.location AS job_location
       FROM applications a
       LEFT JOIN jobs j ON a.job_id = j.id
-      WHERE a.id = $1
+      WHERE a.id = ?
     `;
     const result = await db.query(query, [id]);
 
@@ -139,7 +144,7 @@ exports.downloadCV = async (req, res) => {
   try {
     const { id } = req.params;
     const result = await db.query(
-      'SELECT cv_file_path, original_file_name FROM applications WHERE id = $1',
+      'SELECT cv_file_path, original_file_name FROM applications WHERE id = ?',
       [id]
     );
 
@@ -176,18 +181,21 @@ exports.updateApplicationStatus = async (req, res) => {
     }
 
     const result = await db.query(
-      'UPDATE applications SET status = $1 WHERE id = $2 RETURNING *',
+      'UPDATE applications SET status = ? WHERE id = ?',
       [status, id]
     );
 
-    if (result.rows.length === 0) {
+    if (result.rows.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Application not found' });
     }
+
+    // Fetch the updated application
+    const updated = await db.query('SELECT * FROM applications WHERE id = ?', [id]);
 
     res.json({
       success: true,
       message: `Status updated to ${status}`,
-      data: result.rows[0],
+      data: updated.rows[0],
     });
   } catch (err) {
     console.error('Error in updateApplicationStatus:', err);
@@ -199,17 +207,24 @@ exports.updateApplicationStatus = async (req, res) => {
 exports.deleteApplication = async (req, res) => {
   try {
     const { id } = req.params;
-    const check = await db.query(
-      'DELETE FROM applications WHERE id = $1 RETURNING cv_file_path',
+
+    // First get the CV path before deleting
+    const appData = await db.query(
+      'SELECT cv_file_path FROM applications WHERE id = ?',
       [id]
     );
 
-    if (check.rows.length === 0) {
+    if (appData.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Application not found' });
     }
 
+    const cvFilePath = appData.rows[0].cv_file_path;
+
+    // Delete from database
+    await db.query('DELETE FROM applications WHERE id = ?', [id]);
+
     // Delete CV file from disk
-    const cvPath = path.join(__dirname, '../uploads/cvs', check.rows[0].cv_file_path);
+    const cvPath = path.join(__dirname, '../uploads/cvs', cvFilePath);
     if (fs.existsSync(cvPath)) {
       fs.unlinkSync(cvPath);
     }
@@ -223,4 +238,3 @@ exports.deleteApplication = async (req, res) => {
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
-

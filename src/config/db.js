@@ -1,31 +1,36 @@
-const { Pool } = require('pg');
+const mysql = require('mysql2/promise');
 require('dotenv').config();
 
-const poolConfig = process.env.DATABASE_URL
-  ? {
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false },
-    }
-  : {
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '5432', 10),
-      database: process.env.DB_NAME || 'naki_db',
-      user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'postgres',
-    };
-
-const pool = new Pool(poolConfig);
-
-pool.on('connect', () => {
-  console.log('✅ Connected to PostgreSQL database');
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '3306', 10),
+  database: process.env.DB_NAME || 'nakigroup_db',
+  user: process.env.DB_USER || 'nakigroup_user',
+  password: process.env.DB_PASSWORD || '',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
 });
 
-pool.on('error', (err) => {
-  console.error('❌ Unexpected error on idle PostgreSQL client:', err.message);
-});
+// Test connection on startup
+(async () => {
+  try {
+    const conn = await pool.getConnection();
+    console.log('✅ Connected to MySQL database');
+    conn.release();
+  } catch (err) {
+    console.error('❌ Failed to connect to MySQL:', err.message);
+  }
+})();
 
 module.exports = {
-  query: (text, params) => pool.query(text, params),
+  query: async (text, params) => {
+    if (params && params.length > 0) {
+      const [rows] = await pool.execute(text, params);
+      return { rows };
+    }
+    const [rows] = await pool.query(text);
+    return { rows };
+  },
   pool,
 };
-
